@@ -145,6 +145,66 @@ pub fn strip_edition(title: &str) -> String {
     }
 }
 
+fn artist_matches(candidates: &[MatchCandidate], artist_name: &str) -> bool {
+    candidates.first().is_some_and(|c| {
+        normalize(&c.artist_name) == normalize(artist_name) && c.artist_mbid.is_some()
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct MbArtistSearch {
+    #[serde(default)]
+    artists: Vec<MbArtistHit>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MbArtistHit {
+    id: Uuid,
+    name: String,
+    score: u8,
+}
+
+/// The artist whose name is exactly `artist_name` (ignoring case and punctuation), if there is
+/// exactly one such artist at the top of MusicBrainz's search. Two artists with the same name
+/// are a coin flip, so those return None.
+async fn artist_by_name(base_url: &str, cache: &Cache, artist_name: &str) -> Option<Uuid> {
+    let wanted = normalize(artist_name);
+    if wanted.is_empty() {
+        return None;
+    }
+    let key = format!("liner:match:artist:v1:{wanted}");
+    let hits: Vec<(Uuid, String, u8)> = cache
+        .get_or_fetch(&key, || async {
+            let resp = reqwest::Client::new()
+                .get(format!("{base_url}/ws/2/artist"))
+                .query(&[
+                    (
+                        "query",
+                        format!("artist:\"{}\"", clean_title(artist_name).replace('"', ""))
+                            .as_str(),
+                    ),
+                    ("fmt", "json"),
+                    ("limit", "5"),
+                ])
+                .send()
+                .await?
+                .error_for_status()?;
+            let body: MbArtistSearch = resp.json().await?;
+            Ok(body
+                .artists
+                .into_iter()
+                .map(|a| (a.id, a.name, a.score))
+                .collect())
+        })
+        .await
+        .unwrap_or_default();
+    let mut exact = hits
+        .iter()
+        .filter(|(_, name, score)| *score >= 90 && normalize(name) == wanted);
+    let first = exact.next()?;
+    exact.next().is_none().then_some(first.0)
+}
+
 fn clean_title(title: &str) -> String {
     title.chars().filter(|c| !is_invisible(*c)).collect()
 }
@@ -188,6 +248,13 @@ pub async fn match_album(
     let best = candidates
         .first()
         .filter(|_| status == MatchStatus::Confident);
+    // The album search misses artists credited differently on their records, and albums
+    // MusicBrainz lacks. If it found nobody, look for the artist by name alone.
+    let by_name = if best.is_none() && !artist_matches(&candidates, artist_name) {
+        artist_by_name(base_url, cache, artist_name).await
+    } else {
+        None
+    };
     // Even when the album is not pinned down, a top hit by an artist with exactly this name
     // identifies the artist. Compare against the full credit so "Lyle & Peake" is not "Peake".
     let artist = candidates
@@ -195,7 +262,8 @@ pub async fn match_album(
         .filter(|c| {
             status != MatchStatus::NotFound && normalize(&c.artist_name) == normalize(artist_name)
         })
-        .and_then(|c| c.artist_mbid);
+        .and_then(|c| c.artist_mbid)
+        .or(by_name);
     AlbumMatch {
         artist_name: artist_name.to_string(),
         album_name: album_name.to_string(),

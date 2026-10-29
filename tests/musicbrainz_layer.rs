@@ -33,8 +33,30 @@ async fn fake_mb() -> String {
             }),
         )
         .route(
+            "/ws/2/artist",
+            get(|Query(q): Query<HashMap<String, String>>| async move {
+                let query = q.get("query").cloned().unwrap_or_default();
+                if query.contains("Twin") {
+                    Json(json!({"artists": [
+                        {"id": ARTIST, "name": "Twin", "score": 100},
+                        {"id": RG, "name": "Twin", "score": 100},
+                    ]}))
+                } else if query.contains("Credited Differently") {
+                    Json(json!({"artists": [
+                        {"id": ARTIST, "name": "Credited Differently", "score": 100},
+                        {"id": RG, "name": "Credited Differently Choir", "score": 70},
+                    ]}))
+                } else {
+                    Json(json!({"artists": []}))
+                }
+            }),
+        )
+        .route(
             "/ws/2/release-group",
             get(|Query(q): Query<HashMap<String, String>>| async move {
+                if q.get("query").is_some_and(|q| q.contains("Missing Album")) {
+                    return Json(json!({"release-groups": []}));
+                }
                 if q.contains_key("query") {
                     Json(json!({"release-groups": [{
                         "id": RG, "title": "Fake Album", "score": 100, "primary-type": "Album",
@@ -116,6 +138,25 @@ async fn match_is_confident_on_exact_title() {
     assert_eq!(body["candidates"][0]["artist_mbid"], ARTIST);
     assert_eq!(body["artist_mbid"], ARTIST);
     assert_eq!(body["release_group_mbid"], RG);
+}
+
+#[tokio::test]
+async fn match_falls_back_to_the_artist_name() {
+    let get = |artist: &str| {
+        Request::get(format!("/v1/match?artist={artist}&album=Missing%20Album"))
+            .body(Body::empty())
+            .unwrap()
+    };
+    let (_, body) = call(router().await, get("Credited%20Differently")).await;
+    assert_eq!(body["status"], "not_found");
+    assert_eq!(body["artist_mbid"], ARTIST);
+    assert!(body["release_group_mbid"].is_null());
+
+    // Two artists share the name, so it is not a match.
+    let (_, body) = call(router().await, get("Twin")).await;
+    assert!(body["artist_mbid"].is_null());
+    let (_, body) = call(router().await, get("Nobody")).await;
+    assert!(body["artist_mbid"].is_null());
 }
 
 #[tokio::test]
