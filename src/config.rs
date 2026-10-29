@@ -5,7 +5,10 @@ fn var(name: &str, default: &str) -> String {
 }
 
 fn parse<T: std::str::FromStr>(name: &str, default: T) -> T {
-    env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 pub struct Config {
@@ -23,13 +26,18 @@ pub struct Config {
     pub llm_api_key: Option<String>,
     pub llm_model: String,
     pub llm_daily_artist_cap: u32,
+    pub enrich_interval_ms: u64,
+    pub worker_metrics_port: u16,
 }
 
 impl Config {
     pub fn from_env() -> Self {
         Self {
             port: parse("PORT", 3002),
-            database_url: var("DATABASE_URL", "postgres://liner:liner@localhost:5433/liner"),
+            database_url: var(
+                "DATABASE_URL",
+                "postgres://liner:liner@localhost:5433/liner",
+            ),
             redis_url: var("REDIS_URL", "redis://localhost:6380"),
             musicbrainz_api_url: var("MUSICBRAINZ_API_URL", "https://mb.halfnotes.club"),
             admin_token: env::var("ADMIN_TOKEN").ok(),
@@ -42,6 +50,8 @@ impl Config {
             llm_api_key: env::var("LLM_API_KEY").ok(),
             llm_model: var("LLM_MODEL", "gpt-6.1-sol"),
             llm_daily_artist_cap: parse("LLM_DAILY_ARTIST_CAP", 200),
+            enrich_interval_ms: parse("ENRICH_JOB_INTERVAL_MS", 1000),
+            worker_metrics_port: parse("WORKER_METRICS_PORT", 9090),
         }
     }
 }

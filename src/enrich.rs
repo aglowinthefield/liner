@@ -1,6 +1,5 @@
-//! Bios, tags, and images stored in Postgres, filled from outside sources on first request.
-//!
-//! Enrichment is best effort: any failure is logged and the artist is served without it.
+//! Bios, tags, and images stored in Postgres. A request reads what is stored and queues an
+//! `enrich` job when it is missing or old; the worker fetches from the outside sources.
 
 use std::time::Duration;
 
@@ -9,15 +8,15 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    artist::model::ExternalLink,
-    sources::{lastfm, wikipedia::qid_from_url},
+    artist::model::get_artist,
+    jobs,
+    sources::{lastfm, wikipedia::qid_from_url, RateLimited},
     AppState,
 };
 
 const WIKIPEDIA_LICENSE: &str = "CC BY-SA 4.0";
 const MAX_AGE_DAYS: i32 = 30;
 const MISS_TTL: Duration = Duration::from_secs(6 * 60 * 60);
-const ERROR_TTL: Duration = Duration::from_secs(5 * 60);
 const FANART_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, sqlx::FromRow)]
@@ -50,22 +49,80 @@ pub struct Enrichment {
     pub tags: Vec<String>,
 }
 
-pub async fn artist(state: &AppState, mbid: Uuid, links: &[ExternalLink]) -> Enrichment {
-    let qid = links
-        .iter()
-        .filter(|l| l.link_type == "wikidata")
-        .find_map(|l| qid_from_url(&l.url));
-    tokio::join!(
-        ensure_wikipedia(state, mbid, qid),
-        ensure_lastfm(state, mbid),
-        ensure_fanart(state, mbid)
-    );
-    match load(state, mbid).await {
+/// Whether the worker has finished fetching bios, tags, and images for an artist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum EnrichmentStatus {
+    /// A job is queued or running. Ask again in a few seconds.
+    Pending,
+    /// Everything liner can find is in the response.
+    Complete,
+    /// The last job failed. Liner retries after an hour.
+    Failed,
+}
+
+const FAILED_RETRY_SECS: f64 = 60.0 * 60.0;
+
+/// What is stored for the artist now. Queues a job to fetch more if nothing recent has run,
+/// so the response never waits on Wikidata, Wikipedia, Last.fm, or fanart.tv.
+pub async fn lookup(state: &AppState, mbid: Uuid) -> (Enrichment, EnrichmentStatus) {
+    let stored = match load(state, mbid).await {
         Ok(found) => found,
         Err(e) => {
             tracing::warn!("loading stored enrichment for {mbid} failed: {e}");
             Enrichment::default()
         }
+    };
+    match status(state, mbid).await {
+        Ok(s) => (stored, s),
+        Err(e) => {
+            tracing::warn!("checking enrichment jobs for {mbid} failed: {e}");
+            (stored, EnrichmentStatus::Failed)
+        }
+    }
+}
+
+async fn status(state: &AppState, mbid: Uuid) -> anyhow::Result<EnrichmentStatus> {
+    let max_age_secs = f64::from(MAX_AGE_DAYS) * 86_400.0;
+    let queue = match jobs::latest(&state.pool, jobs::KIND_ENRICH, mbid).await? {
+        Some((s, _)) if s == "pending" || s == "running" => false,
+        Some((s, age)) if s == "done" && age < max_age_secs => {
+            return Ok(EnrichmentStatus::Complete)
+        }
+        Some((s, age)) if s == "failed" && age < FAILED_RETRY_SECS => {
+            return Ok(EnrichmentStatus::Failed)
+        }
+        Some(_) | None => true,
+    };
+    if queue {
+        jobs::enqueue(&state.pool, jobs::KIND_ENRICH, mbid).await?;
+    }
+    Ok(EnrichmentStatus::Pending)
+}
+
+/// The worker's side: fetches from every source and stores what it finds. Fails if any source
+/// failed, so the job is retried; sources that already succeeded are skipped on the retry.
+pub async fn run_job(state: &AppState, mbid: Uuid) -> anyhow::Result<()> {
+    let artist = get_artist(&state.mb_api_url, mbid, &state.cache).await?;
+    let qid = artist
+        .links
+        .iter()
+        .filter(|l| l.link_type == "wikidata")
+        .find_map(|l| qid_from_url(&l.url));
+    let (wikipedia, lastfm, fanart) = tokio::join!(
+        ensure_wikipedia(state, mbid, qid),
+        ensure_lastfm(state, mbid),
+        ensure_fanart(state, mbid)
+    );
+    let mut errors: Vec<anyhow::Error> = [wikipedia, lastfm, fanart]
+        .into_iter()
+        .filter_map(Result::err)
+        .collect();
+    // A rate limit decides how the worker reacts, so report it ahead of other errors.
+    errors.sort_by_key(|e| e.downcast_ref::<RateLimited>().is_none());
+    match errors.into_iter().next() {
+        Some(e) => Err(e),
+        None => Ok(()),
     }
 }
 
@@ -82,14 +139,14 @@ async fn bio_is_fresh(state: &AppState, mbid: Uuid, source: &str) -> bool {
     .is_some()
 }
 
-async fn ensure_wikipedia(state: &AppState, mbid: Uuid, qid: Option<&str>) {
-    let Some(qid) = qid else { return };
+async fn ensure_wikipedia(state: &AppState, mbid: Uuid, qid: Option<&str>) -> anyhow::Result<()> {
+    let Some(qid) = qid else { return Ok(()) };
     let miss_key = format!("liner:enrich:miss:wikipedia:{mbid}");
     if bio_is_fresh(state, mbid, "wikipedia").await || state.cache.is_marked(&miss_key).await {
-        return;
+        return Ok(());
     }
-    match state.wiki.summary_for_qid(qid).await {
-        Ok(Some(s)) => {
+    match state.wiki.summary_for_qid(qid).await? {
+        Some(s) => {
             let bio = Bio {
                 source: "wikipedia".into(),
                 lang: "en".into(),
@@ -109,26 +166,25 @@ async fn ensure_wikipedia(state: &AppState, mbid: Uuid, qid: Option<&str>) {
                     })
                 })
                 .collect();
-            if let Err(e) = store(state, mbid, "wikipedia", Some(&bio), &images, None).await {
-                tracing::warn!("storing wikipedia enrichment for {mbid} failed: {e}");
-            }
+            store(state, mbid, "wikipedia", Some(&bio), &images, None).await
         }
-        Ok(None) => state.cache.mark(&miss_key, MISS_TTL).await,
-        Err(e) => {
-            tracing::warn!("wikipedia lookup for {mbid} ({qid}) failed: {e}");
-            state.cache.mark(&miss_key, ERROR_TTL).await;
+        None => {
+            state.cache.mark(&miss_key, MISS_TTL).await;
+            Ok(())
         }
     }
 }
 
-async fn ensure_lastfm(state: &AppState, mbid: Uuid) {
-    let Some(lastfm) = &state.lastfm else { return };
+async fn ensure_lastfm(state: &AppState, mbid: Uuid) -> anyhow::Result<()> {
+    let Some(lastfm) = &state.lastfm else {
+        return Ok(());
+    };
     let miss_key = format!("liner:enrich:miss:lastfm:{mbid}");
     if bio_is_fresh(state, mbid, "lastfm").await || state.cache.is_marked(&miss_key).await {
-        return;
+        return Ok(());
     }
-    match lastfm.artist_info(mbid).await {
-        Ok(Some(info)) => {
+    match lastfm.artist_info(mbid).await? {
+        Some(info) => {
             let bio = (!info.summary.is_empty()).then(|| Bio {
                 source: "lastfm".into(),
                 lang: "en".into(),
@@ -138,49 +194,41 @@ async fn ensure_lastfm(state: &AppState, mbid: Uuid) {
             });
             if bio.is_none() && info.tags.is_empty() {
                 state.cache.mark(&miss_key, MISS_TTL).await;
-            } else if let Err(e) =
+                Ok(())
+            } else {
                 store(state, mbid, "lastfm", bio.as_ref(), &[], Some(&info.tags)).await
-            {
-                tracing::warn!("storing last.fm enrichment for {mbid} failed: {e}");
             }
         }
-        Ok(None) => state.cache.mark(&miss_key, MISS_TTL).await,
-        Err(e) => {
-            tracing::warn!("last.fm lookup for {mbid} failed: {e}");
-            state.cache.mark(&miss_key, ERROR_TTL).await;
+        None => {
+            state.cache.mark(&miss_key, MISS_TTL).await;
+            Ok(())
         }
     }
 }
 
-async fn ensure_fanart(state: &AppState, mbid: Uuid) {
-    let Some(fanart) = &state.fanart else { return };
+async fn ensure_fanart(state: &AppState, mbid: Uuid) -> anyhow::Result<()> {
+    let Some(fanart) = &state.fanart else {
+        return Ok(());
+    };
     let done_key = format!("liner:enrich:done:fanart:{mbid}");
     if state.cache.is_marked(&done_key).await {
-        return;
+        return Ok(());
     }
-    match fanart.artist_images(mbid).await {
-        Ok(found) => {
-            let images: Vec<Image> = found
-                .into_iter()
-                .map(|i| Image {
-                    kind: i.kind.into(),
-                    url: i.url,
-                    source: "fanart".into(),
-                    width: None,
-                    height: None,
-                })
-                .collect();
-            if let Err(e) = store(state, mbid, "fanart", None, &images, None).await {
-                tracing::warn!("storing fanart.tv images for {mbid} failed: {e}");
-            } else {
-                state.cache.mark(&done_key, FANART_TTL).await;
-            }
-        }
-        Err(e) => {
-            tracing::warn!("fanart.tv lookup for {mbid} failed: {e}");
-            state.cache.mark(&done_key, ERROR_TTL).await;
-        }
-    }
+    let images: Vec<Image> = fanart
+        .artist_images(mbid)
+        .await?
+        .into_iter()
+        .map(|i| Image {
+            kind: i.kind.into(),
+            url: i.url,
+            source: "fanart".into(),
+            width: None,
+            height: None,
+        })
+        .collect();
+    store(state, mbid, "fanart", None, &images, None).await?;
+    state.cache.mark(&done_key, FANART_TTL).await;
+    Ok(())
 }
 
 async fn load(state: &AppState, mbid: Uuid) -> anyhow::Result<Enrichment> {

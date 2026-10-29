@@ -29,6 +29,9 @@ pub struct ArtistResponse {
     pub images: Vec<crate::enrich::Image>,
     /// Genre and style tags from Last.fm, most popular first.
     pub tags: Vec<String>,
+    /// `pending` while liner is still fetching bios and images in the background. Ask again
+    /// in a few seconds; what is already here stays valid.
+    pub enrichment: crate::enrich::EnrichmentStatus,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

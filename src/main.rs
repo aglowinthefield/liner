@@ -84,7 +84,24 @@ async fn serve(config: Config, pool: sqlx::PgPool) -> anyhow::Result<()> {
 
 async fn worker(config: Config, pool: sqlx::PgPool) -> anyhow::Result<()> {
     let state = app_state(&config, pool).await?;
-    liner::worker::run(state).await;
+    liner::metrics::install();
+    let app = axum::Router::new()
+        .route(
+            "/metrics",
+            axum::routing::get(liner::metrics::worker_metrics_handler),
+        )
+        .route("/healthz", axum::routing::get(liner::health::healthz));
+    let listener =
+        tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.worker_metrics_port)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, app).await {
+            tracing::error!("worker metrics server stopped: {e}");
+        }
+    });
+    let settings = liner::worker::WorkerConfig {
+        enrich_interval: std::time::Duration::from_millis(config.enrich_interval_ms),
+    };
+    liner::worker::run(state, settings).await;
     Ok(())
 }
 

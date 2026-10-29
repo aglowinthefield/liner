@@ -62,6 +62,7 @@ pub struct AppState {
         artist::model::ArtistResponse,
         enrich::Bio,
         enrich::Image,
+        enrich::EnrichmentStatus,
         artist::model::ReleaseGroupSummary,
         label::model::LabelDetail,
         label::model::LabelRelease,

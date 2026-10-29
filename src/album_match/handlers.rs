@@ -39,7 +39,13 @@ pub async fn match_album(
         )
             .into_response();
     }
-    let m = model::match_album(&state.mb_api_url, &state.cache, &params.artist, &params.album).await;
+    let m = model::match_album(
+        &state.mb_api_url,
+        &state.cache,
+        &params.artist,
+        &params.album,
+    )
+    .await;
     (StatusCode::OK, Json(m)).into_response()
 }
 
@@ -67,7 +73,9 @@ pub async fn match_batch(
         .map(|album| {
             let mb_url = state.mb_api_url.clone();
             let cache = state.cache.clone();
-            async move { model::match_album(&mb_url, &cache, &album.artist_name, &album.album_name).await }
+            async move {
+                model::match_album(&mb_url, &cache, &album.artist_name, &album.album_name).await
+            }
         })
         .buffered(10)
         .collect::<Vec<_>>()

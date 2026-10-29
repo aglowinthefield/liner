@@ -82,13 +82,13 @@ async fn fake_wiki() -> (String, Arc<AtomicUsize>) {
     (url, hits)
 }
 
-async fn app(wiki_url: &str) -> Router {
+async fn app(wiki_url: &str) -> (Router, AppState) {
     let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6380".into());
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://liner:liner@localhost:5433/liner".into());
     let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
     sqlx::migrate!().run(&pool).await.unwrap();
-    build_router(AppState {
+    let state = AppState {
         pool,
         cache: Cache::connect(&redis_url).await.unwrap(),
         mb_api_url: fake_mb().await,
@@ -103,7 +103,8 @@ async fn app(wiki_url: &str) -> Router {
             key_per_min: 100_000,
             trust_proxy: true,
         },
-    })
+    };
+    (build_router(state.clone()), state)
 }
 
 async fn get_json(app: &Router, uri: &str) -> (u16, Value) {
@@ -123,12 +124,38 @@ async fn get_json(app: &Router, uri: &str) -> (u16, Value) {
 #[tokio::test]
 async fn artist_gets_bio_and_images_then_serves_from_postgres() {
     let (wiki_url, hits) = fake_wiki().await;
-    let app = app(&wiki_url).await;
-    let uri = format!("/v1/artist/{}", Uuid::new_v4());
+    let (app, state) = app(&wiki_url).await;
+    let id = Uuid::new_v4();
+    let uri = format!("/v1/artist/{id}");
 
+    // The first request answers at once and queues the fetch.
     let (status, body) = get_json(&app, &uri).await;
     assert_eq!(status, 200);
     assert_eq!(body["name"], "Fake Band");
+    assert!(body["bio"].is_null());
+    assert_eq!(body["enrichment"], "pending");
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+
+    // Asking again does not queue a second job.
+    get_json(&app, &uri).await;
+    let queued: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'enrich' AND mbid = $1")
+            .bind(id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(queued, 1);
+
+    liner::enrich::run_job(&state, id).await.unwrap();
+    sqlx::query("UPDATE jobs SET status = 'done' WHERE kind = 'enrich' AND mbid = $1")
+        .bind(id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let (status, body) = get_json(&app, &uri).await;
+    assert_eq!(status, 200);
+    assert_eq!(body["enrichment"], "complete");
     assert_eq!(body["bio"]["summary"], "Fake Band is a band.");
     assert_eq!(body["bio"]["source"], "wikipedia");
     assert_eq!(body["bio"]["license"], "CC BY-SA 4.0");
@@ -151,27 +178,33 @@ async fn artist_gets_bio_and_images_then_serves_from_postgres() {
 #[tokio::test]
 async fn artist_without_wikidata_link_has_no_bio() {
     let (wiki_url, hits) = fake_wiki().await;
-    let app = app(&wiki_url).await;
+    let (app, state) = app(&wiki_url).await;
     let id = format!("ffffffff-{}", &Uuid::new_v4().to_string()[9..]);
-    let (status, body) = get_json(&app, &format!("/v1/artist/{id}")).await;
+    let (status, _) = get_json(&app, &format!("/v1/artist/{id}")).await;
     assert_eq!(status, 200);
+    liner::enrich::run_job(&state, id.parse().unwrap())
+        .await
+        .unwrap();
+    let (_, body) = get_json(&app, &format!("/v1/artist/{id}")).await;
     assert!(body["bio"].is_null());
     assert_eq!(body["images"], json!([]));
     assert_eq!(hits.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
-async fn wikipedia_outage_still_serves_artist() {
-    let app = app("http://127.0.0.1:1").await;
-    let (status, body) = get_json(&app, &format!("/v1/artist/{}", Uuid::new_v4())).await;
+async fn wikipedia_outage_still_serves_artist_and_fails_the_job() {
+    let (app, state) = app("http://127.0.0.1:1").await;
+    let id = Uuid::new_v4();
+    let (status, body) = get_json(&app, &format!("/v1/artist/{id}")).await;
     assert_eq!(status, 200);
     assert!(body["bio"].is_null());
+    assert!(liner::enrich::run_job(&state, id).await.is_err());
 }
 
 #[tokio::test]
 async fn unknown_artist_is_404() {
     let (wiki_url, _) = fake_wiki().await;
-    let app = app(&wiki_url).await;
+    let (app, _) = app(&wiki_url).await;
     let id = format!("00000000-{}", &Uuid::new_v4().to_string()[9..]);
     let (status, _) = get_json(&app, &format!("/v1/artist/{id}")).await;
     assert_eq!(status, 404);

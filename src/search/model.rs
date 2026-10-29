@@ -116,7 +116,8 @@ async fn fetch_artists(base_url: &str, query: &str) -> Result<Vec<ArtistResult>>
         .into_iter()
         .map(|a| {
             let begin_year = a.life_span.and_then(|ls| {
-                ls.begin.and_then(|b| b.split('-').next().map(|y| y.to_string()))
+                ls.begin
+                    .and_then(|b| b.split('-').next().map(|y| y.to_string()))
             });
             ArtistResult {
                 mbid: a.id,

@@ -7,6 +7,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as k8s from "@pulumi/kubernetes";
 import * as cloudflare from "@pulumi/cloudflare";
+import { monitoring } from "./monitoring";
 
 const config = new pulumi.Config();
 const image = config.get("image") || "registry.digitalocean.com/halfnotes/liner:latest";
@@ -45,9 +46,12 @@ const env: k8s.types.input.core.v1.EnvVar[] = [
   { name: "TRUST_PROXY", value: "true" },
   { name: "LLM_MODEL", value: config.get("llmModel") || "gpt-6.1-sol" },
   { name: "LLM_DAILY_ARTIST_CAP", value: config.get("llmDailyArtistCap") || "200" },
+  // Least time between two enrich jobs, so Wikidata and Wikipedia see a steady trickle.
+  { name: "ENRICH_JOB_INTERVAL_MS", value: config.get("enrichJobIntervalMs") || "1000" },
+  { name: "WORKER_METRICS_PORT", value: "9090" },
 ];
 
-function deployment(name: string, args: string[], port?: number) {
+function deployment(name: string, args: string[], port?: number, portName?: string) {
   const l = labels(name);
   return new k8s.apps.v1.Deployment(name, {
     metadata: { name },
@@ -64,7 +68,7 @@ function deployment(name: string, args: string[], port?: number) {
             command: ["liner", ...args],
             envFrom: [{ secretRef: { name: secret.metadata.name } }],
             env,
-            ports: port ? [{ containerPort: port }] : undefined,
+            ports: port ? [{ name: portName, containerPort: port }] : undefined,
             readinessProbe: port
               ? { httpGet: { path: "/healthz", port }, periodSeconds: 10 }
               : undefined,
@@ -80,7 +84,9 @@ function deployment(name: string, args: string[], port?: number) {
 }
 
 export const api = deployment("liner-api", ["serve"], 3002);
-export const worker = deployment("liner-worker", ["worker"]);
+const workerMetricsPort = 9090;
+export const worker = deployment("liner-worker", ["worker"], workerMetricsPort, "metrics");
+export const monitors = monitoring(workerMetricsPort);
 
 export const service = new k8s.core.v1.Service("liner-api", {
   metadata: { name: "liner-api" },

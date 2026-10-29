@@ -121,7 +121,7 @@ impl Lastfm {
         mbid: Uuid,
         extra: &[(&str, &str)],
     ) -> Result<Option<serde_json::Value>> {
-        let resp = self
+        let request = self
             .client
             .get(format!("{}/2.0/", self.base_url))
             .query(&[
@@ -130,9 +130,8 @@ impl Lastfm {
                 ("format", "json"),
                 ("mbid", &mbid.to_string()),
             ])
-            .query(extra)
-            .send()
-            .await?;
+            .query(extra);
+        let resp = super::send("lastfm", request).await?;
         let status = resp.status();
         // Last.fm reports "artist not found" (error 6) as HTTP 404 or as a 200 with an error body.
         if status == reqwest::StatusCode::NOT_FOUND {

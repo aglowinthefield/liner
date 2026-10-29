@@ -66,14 +66,30 @@ impl Llm {
                 "json_schema": {"name": schema_name, "strict": true, "schema": schema},
             },
         });
-        let resp = self
+        let sent = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
             .bearer_auth(&self.api_key)
             .json(&body)
             .send()
-            .await?;
+            .await;
+        let resp = match sent {
+            Ok(r) => r,
+            Err(e) => {
+                metrics::counter!("liner_llm_requests_total", "outcome" => "network_error")
+                    .increment(1);
+                return Err(e.into());
+            }
+        };
         let status = resp.status();
+        let outcome = if status.is_success() {
+            "ok"
+        } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            "rate_limited"
+        } else {
+            "error"
+        };
+        metrics::counter!("liner_llm_requests_total", "outcome" => outcome).increment(1);
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
             anyhow::bail!(

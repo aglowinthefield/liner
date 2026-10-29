@@ -48,12 +48,11 @@ impl Fanart {
 
     /// Returns the first image of each kind that fanart.tv has for the artist.
     pub async fn artist_images(&self, mbid: Uuid) -> Result<Vec<FanartImage>> {
-        let resp = self
+        let request = self
             .client
             .get(format!("{}/v3/music/{mbid}", self.base_url))
-            .query(&[("api_key", &self.api_key)])
-            .send()
-            .await?;
+            .query(&[("api_key", &self.api_key)]);
+        let resp = super::send("fanart", request).await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(vec![]);
         }

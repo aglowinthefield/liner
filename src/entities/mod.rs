@@ -43,11 +43,16 @@ pub struct NamesResponse {
     ),
     tag = "entities"
 )]
-pub async fn names(State(state): State<AppState>, Json(body): Json<NamesRequest>) -> impl IntoResponse {
+pub async fn names(
+    State(state): State<AppState>,
+    Json(body): Json<NamesRequest>,
+) -> impl IntoResponse {
     if body.entities.len() > MAX_BATCH {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": format!("at most {MAX_BATCH} entities per request") })),
+            Json(
+                serde_json::json!({ "error": format!("at most {MAX_BATCH} entities per request") }),
+            ),
         )
             .into_response();
     }

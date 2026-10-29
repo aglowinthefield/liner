@@ -115,7 +115,9 @@ struct WsReleaseGroup {
 pub async fn get_label(base_url: &str, mbid: Uuid, cache: &Cache) -> Result<LabelDetail> {
     let base_url = base_url.to_string();
     cache
-        .get_or_fetch(&format!("liner:label:{mbid}"), || fetch_label(&base_url, mbid))
+        .get_or_fetch(&format!("liner:label:{mbid}"), || {
+            fetch_label(&base_url, mbid)
+        })
         .await
 }
 

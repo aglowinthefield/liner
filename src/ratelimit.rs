@@ -28,7 +28,10 @@ pub struct RateLimitConfig {
 }
 
 pub fn hash_key(key: &str) -> String {
-    Sha256::digest(key.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(key.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Returns the client IP. Behind a proxy, prefers `CF-Connecting-IP`, then the first
@@ -44,7 +47,8 @@ fn client_ip(headers: &HeaderMap, peer: Option<SocketAddr>, trust_proxy: bool) -
             return ip.trim().to_string();
         }
     }
-    peer.map(|p| p.ip().to_string()).unwrap_or_else(|| "unknown".to_string())
+    peer.map(|p| p.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 async fn key_limit(state: &AppState, key: &str) -> Option<(String, u32)> {
@@ -57,7 +61,12 @@ async fn key_limit(state: &AppState, key: &str) -> Option<(String, u32)> {
     .map_err(|e| tracing::warn!("api key lookup failed: {e}"))
     .ok()
     .flatten();
-    row.map(|(id, limit)| (format!("key:{id}"), limit.map(|l| l as u32).unwrap_or(state.rate.key_per_min)))
+    row.map(|(id, limit)| {
+        (
+            format!("key:{id}"),
+            limit.map(|l| l as u32).unwrap_or(state.rate.key_per_min),
+        )
+    })
 }
 
 pub async fn middleware(State(state): State<AppState>, req: Request, next: Next) -> Response {
@@ -66,17 +75,27 @@ pub async fn middleware(State(state): State<AppState>, req: Request, next: Next)
         return next.run(req).await;
     }
 
-    let supplied_key = req.headers().get(KEY_HEADER).and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let supplied_key = req
+        .headers()
+        .get(KEY_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
     let (subject, limit) = match supplied_key {
         Some(key) => match key_limit(&state, &key).await {
             Some(found) => found,
             None => {
-                return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "invalid API key" })))
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({ "error": "invalid API key" })),
+                )
                     .into_response()
             }
         },
         None => {
-            let peer = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0);
+            let peer = req
+                .extensions()
+                .get::<ConnectInfo<SocketAddr>>()
+                .map(|c| c.0);
             let ip = client_ip(req.headers(), peer, state.rate.trust_proxy);
             (format!("ip:{ip}"), state.rate.anon_per_min)
         }
@@ -92,7 +111,8 @@ pub async fn middleware(State(state): State<AppState>, req: Request, next: Next)
                 Json(serde_json::json!({ "error": "rate limit exceeded" })),
             )
                 .into_response();
-            res.headers_mut().insert(header::RETRY_AFTER, retry.to_string().parse().unwrap());
+            res.headers_mut()
+                .insert(header::RETRY_AFTER, retry.to_string().parse().unwrap());
             res
         }
         Ok(_) => next.run(req).await,

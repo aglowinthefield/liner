@@ -178,8 +178,13 @@ async fn drain(state: &AppState) {
 
 #[tokio::test]
 async fn artist_gets_lastfm_bio_tags_and_fanart_images() {
-    let app = build_router(state(None).await);
-    let (status, body) = get_json(&app, &format!("/v1/artist/{}", Uuid::new_v4())).await;
+    let state = state(None).await;
+    let app = build_router(state.clone());
+    let id = Uuid::new_v4();
+    let (status, _) = get_json(&app, &format!("/v1/artist/{id}")).await;
+    assert_eq!(status, 200);
+    liner::enrich::run_job(&state, id).await.unwrap();
+    let (status, body) = get_json(&app, &format!("/v1/artist/{id}")).await;
     assert_eq!(status, 200);
     assert_eq!(body["bio"]["source"], "lastfm");
     assert_eq!(body["bio"]["summary"], "Root Band is a band.");

@@ -25,12 +25,13 @@ pub async fn get_artist(
 ) -> impl IntoResponse {
     match model::get_artist(&state.mb_api_url, mbid, &state.cache).await {
         Ok(artist) => {
-            let enrichment = enrich::artist(&state, mbid, &artist.links).await;
+            let (enrichment, status) = enrich::lookup(&state, mbid).await;
             let body = ArtistResponse {
                 artist,
                 bio: enrichment.bio,
                 images: enrichment.images,
                 tags: enrichment.tags,
+                enrichment: status,
             };
             (StatusCode::OK, Json(body)).into_response()
         }

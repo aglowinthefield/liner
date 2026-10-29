@@ -19,10 +19,7 @@ use crate::AppState;
     ),
     tag = "label"
 )]
-pub async fn get_label(
-    State(state): State<AppState>,
-    Path(mbid): Path<Uuid>,
-) -> impl IntoResponse {
+pub async fn get_label(State(state): State<AppState>, Path(mbid): Path<Uuid>) -> impl IntoResponse {
     match model::get_label(&state.mb_api_url, mbid, &state.cache).await {
         Ok(label) => (StatusCode::OK, Json(serde_json::json!(label))).into_response(),
         Err(e) => crate::musicbrainz::error_response(&e, "label"),

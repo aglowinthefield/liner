@@ -91,7 +91,7 @@ impl Wikipedia {
     /// Returns the English Wikipedia summary for a Wikidata item, or `None` if the item has
     /// no English article or the article is a disambiguation page.
     pub async fn summary_for_qid(&self, qid: &str) -> Result<Option<Summary>> {
-        let entities: WbEntities = self
+        let request = self
             .client
             .get(format!("{}/w/api.php", self.wikidata_url))
             .query(&[
@@ -100,8 +100,8 @@ impl Wikipedia {
                 ("props", "sitelinks"),
                 ("sitefilter", "enwiki"),
                 ("format", "json"),
-            ])
-            .send()
+            ]);
+        let entities: WbEntities = super::send("wikidata", request)
             .await?
             .error_for_status()?
             .json()
@@ -122,7 +122,7 @@ impl Wikipedia {
             .pop_if_empty()
             .push(&title);
 
-        let resp = self.client.get(url).send().await?;
+        let resp = super::send("wikipedia", self.client.get(url)).await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
         }

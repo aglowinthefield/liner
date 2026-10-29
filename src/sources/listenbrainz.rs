@@ -36,14 +36,14 @@ impl ListenBrainz {
 
     /// Returns similar artists, most similar first. Scores are raw session counts.
     pub async fn similar(&self, mbid: Uuid) -> Result<Vec<SimilarArtist>> {
-        let mut found: Vec<SimilarArtist> = self
+        let request = self
             .client
             .get(format!("{}/similar-artists/json", self.base_url))
             .query(&[
                 ("artist_mbids", mbid.to_string().as_str()),
                 ("algorithm", ALGORITHM),
-            ])
-            .send()
+            ]);
+        let mut found: Vec<SimilarArtist> = super::send("listenbrainz", request)
             .await?
             .error_for_status()?
             .json()

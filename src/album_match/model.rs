@@ -120,7 +120,9 @@ pub async fn match_album(
         MatchStatus::NotFound
     };
 
-    let best = candidates.first().filter(|_| status == MatchStatus::Confident);
+    let best = candidates
+        .first()
+        .filter(|_| status == MatchStatus::Confident);
     AlbumMatch {
         artist_name: artist_name.to_string(),
         album_name: album_name.to_string(),
@@ -156,7 +158,11 @@ async fn fetch_candidates(
         .into_iter()
         .take(3)
         .map(|rg| {
-            let artist_mbid = rg.artist_credit.first().and_then(|ac| ac.artist.as_ref()).map(|a| a.id);
+            let artist_mbid = rg
+                .artist_credit
+                .first()
+                .and_then(|ac| ac.artist.as_ref())
+                .map(|a| a.id);
             let artist = rg
                 .artist_credit
                 .into_iter()
@@ -180,4 +186,3 @@ async fn fetch_candidates(
 
     Ok(candidates)
 }
-
