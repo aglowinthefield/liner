@@ -28,7 +28,8 @@ pub struct AlbumMatch {
     pub status: MatchStatus,
     /// Release group MBID of the best candidate. Only set when `status` is `confident`.
     pub release_group_mbid: Option<String>,
-    /// Artist MBID of the best candidate. Only set when `status` is `confident`.
+    /// Artist MBID of the best candidate. Set when `status` is `confident`, and also when the
+    /// album is only a near match but the top candidate's artist name is the one asked for.
     pub artist_mbid: Option<Uuid>,
     pub candidates: Vec<MatchCandidate>,
 }
@@ -88,6 +89,66 @@ struct MbCreditedArtist {
     id: Uuid,
 }
 
+/// Lowercases and flattens a title or name for comparison: unicode punctuation becomes ASCII,
+/// invisible characters and anything but letters and digits are dropped, and words are
+/// separated by single spaces.
+pub fn normalize(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut gap = true;
+    for c in s.chars() {
+        let c = match c {
+            '\u{2018}' | '\u{2019}' | '\u{2032}' => '\'',
+            _ => c,
+        };
+        if c.is_alphanumeric() {
+            out.extend(c.to_lowercase());
+            gap = false;
+        } else if c == '\'' || is_invisible(c) {
+            // "don't" and "dont" should compare equal; invisible characters vanish.
+        } else if !gap {
+            out.push(' ');
+            gap = true;
+        }
+    }
+    out.trim_end().to_string()
+}
+
+fn is_invisible(c: char) -> bool {
+    matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}' | '\u{feff}')
+}
+
+/// Drops trailing "(...)" and "[...]" groups such as "(Remastered)" or "(A ver.)", and a
+/// trailing " Soundtrack", so the plain title can be searched and compared. Returns the
+/// input unchanged if nothing would be left.
+pub fn strip_edition(title: &str) -> String {
+    let mut t = title.trim().to_string();
+    loop {
+        let trimmed = t.trim_end();
+        let close = match trimmed.chars().last() {
+            Some(')') => '(',
+            Some(']') => '[',
+            _ => break,
+        };
+        match trimmed.rfind(close) {
+            Some(i) if i > 0 => t = trimmed[..i].trim_end().to_string(),
+            _ => break,
+        }
+    }
+    let lower = t.to_lowercase();
+    if let Some(stem) = lower.strip_suffix(" soundtrack") {
+        t.truncate(stem.len());
+    }
+    if t.trim().is_empty() {
+        title.trim().to_string()
+    } else {
+        t.trim().to_string()
+    }
+}
+
+fn clean_title(title: &str) -> String {
+    title.chars().filter(|c| !is_invisible(*c)).collect()
+}
+
 /// Search MusicBrainz for a single (artist, album) pair and return ranked candidates.
 pub async fn match_album(
     base_url: &str,
@@ -96,7 +157,7 @@ pub async fn match_album(
     album_name: &str,
 ) -> AlbumMatch {
     let cache_key = format!(
-        "liner:match:v2:{}:{}",
+        "liner:match:v3:{}:{}",
         artist_name.to_lowercase().trim(),
         album_name.to_lowercase().trim()
     );
@@ -108,11 +169,15 @@ pub async fn match_album(
         .await
         .unwrap_or_default();
 
+    let wanted = normalize(album_name);
+    let wanted_plain = normalize(&strip_edition(album_name));
+    let title_matches = |title: &str| {
+        let n = normalize(title);
+        n == wanted || normalize(&strip_edition(title)) == wanted_plain
+    };
     let status = if candidates.is_empty() {
         MatchStatus::NotFound
-    } else if candidates[0].score >= 90
-        && candidates[0].title.to_lowercase() == album_name.to_lowercase().trim()
-    {
+    } else if candidates[0].score >= 90 && title_matches(&candidates[0].title) {
         MatchStatus::Confident
     } else if candidates[0].score >= 70 {
         MatchStatus::Ambiguous
@@ -123,11 +188,19 @@ pub async fn match_album(
     let best = candidates
         .first()
         .filter(|_| status == MatchStatus::Confident);
+    // Even when the album is not pinned down, a top hit by an artist with exactly this name
+    // identifies the artist. Compare against the full credit so "Lyle & Peake" is not "Peake".
+    let artist = candidates
+        .first()
+        .filter(|c| {
+            status != MatchStatus::NotFound && normalize(&c.artist_name) == normalize(artist_name)
+        })
+        .and_then(|c| c.artist_mbid);
     AlbumMatch {
         artist_name: artist_name.to_string(),
         album_name: album_name.to_string(),
         release_group_mbid: best.map(|c| c.mbid.clone()),
-        artist_mbid: best.and_then(|c| c.artist_mbid),
+        artist_mbid: best.and_then(|c| c.artist_mbid).or(artist),
         status,
         candidates,
     }
@@ -140,8 +213,8 @@ async fn fetch_candidates(
 ) -> Result<Vec<MatchCandidate>> {
     let query = format!(
         "\"{}\" AND artist:\"{}\"",
-        album_name.replace('"', ""),
-        artist_name.replace('"', "")
+        clean_title(&strip_edition(album_name)).replace('"', ""),
+        clean_title(artist_name).replace('"', "")
     );
 
     let client = reqwest::Client::new();
@@ -185,4 +258,35 @@ async fn fetch_candidates(
         .collect();
 
     Ok(candidates)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn punctuation_and_case_compare_equal() {
+        assert_eq!(
+            normalize("Destination... Out!"),
+            normalize("Destination\u{2026} Out!")
+        );
+        assert_eq!(normalize("Don\u{2019}t Stop"), normalize("dont stop"));
+        assert_eq!(normalize("\u{200e}waifu"), "waifu");
+        assert_eq!(normalize("Lyle & Peake"), "lyle peake");
+    }
+
+    #[test]
+    fn edition_tags_are_stripped() {
+        assert_eq!(
+            strip_edition("Acid Angel from Asia <ACCESS> (A ver.)"),
+            "Acid Angel from Asia <ACCESS>"
+        );
+        assert_eq!(
+            strip_edition("Blues (original stereo release) [2011 remaster]"),
+            "Blues"
+        );
+        assert_eq!(strip_edition("Diablo II Soundtrack"), "Diablo II");
+        assert_eq!(strip_edition("(Untitled)"), "(Untitled)");
+        assert_eq!(strip_edition("Plain"), "Plain");
+    }
 }
