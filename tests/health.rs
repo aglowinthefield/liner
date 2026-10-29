@@ -9,6 +9,7 @@ async fn healthz_returns_ok() {
         pool: sqlx::PgPool::connect_lazy("postgres://liner:liner@localhost:5433/liner").unwrap(),
         cache: Cache::connect(&redis_url).await.unwrap(),
         mb_api_url: String::new(),
+        rate: liner::ratelimit::RateLimitConfig { anon_per_min: 1000, key_per_min: 1000, trust_proxy: true },
     };
     let res = build_router(state)
         .oneshot(Request::get("/healthz").body(Body::empty()).unwrap())

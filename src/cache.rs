@@ -63,6 +63,16 @@ impl Cache {
         Ok(value)
     }
 
+    /// Increments a fixed-window counter and returns the new count.
+    pub async fn incr_window(&self, key: &str, window: Duration) -> anyhow::Result<u64> {
+        let mut conn = self.conn.clone();
+        let count: u64 = conn.incr(key, 1).await?;
+        if count == 1 {
+            let _: () = conn.expire(key, window.as_secs() as i64).await?;
+        }
+        Ok(count)
+    }
+
     async fn get<T: DeserializeOwned>(&self, key: &str) -> anyhow::Result<Option<T>> {
         let mut conn = self.conn.clone();
         let raw: Option<String> = conn.get(key).await?;

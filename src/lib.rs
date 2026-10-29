@@ -8,6 +8,7 @@ pub mod health;
 pub mod label;
 pub mod metrics;
 pub mod musicbrainz;
+pub mod ratelimit;
 pub mod release_group;
 pub mod search;
 
@@ -22,6 +23,7 @@ pub struct AppState {
     pub pool: PgPool,
     pub cache: Cache,
     pub mb_api_url: String,
+    pub rate: ratelimit::RateLimitConfig,
 }
 
 #[derive(OpenApi)]
@@ -79,6 +81,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/match/batch", post(album_match::handlers::match_batch))
         .route("/v1/entities/names", post(entities::names))
         .route("/metrics", get(metrics::metrics_handler))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), ratelimit::middleware))
         .layer(metrics::layer())
         .with_state(state)
 }
