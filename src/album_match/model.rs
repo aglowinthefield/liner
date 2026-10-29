@@ -205,6 +205,14 @@ async fn artist_by_name(base_url: &str, cache: &Cache, artist_name: &str) -> Opt
     exact.next().is_none().then_some(first.0)
 }
 
+/// The first artist of a joined credit such as "vai5000， maji*", when the tag has separators
+/// that appear in multi-artist credits. A single-artist name returns None.
+fn lead_artist(artist_name: &str) -> Option<&str> {
+    let (lead, _) = artist_name.split_once(['，', '、', ';', '；'])?;
+    let lead = lead.trim();
+    (!lead.is_empty()).then_some(lead)
+}
+
 fn clean_title(title: &str) -> String {
     title.chars().filter(|c| !is_invisible(*c)).collect()
 }
@@ -251,7 +259,13 @@ pub async fn match_album(
     // The album search misses artists credited differently on their records, and albums
     // MusicBrainz lacks. If it found nobody, look for the artist by name alone.
     let by_name = if best.is_none() && !artist_matches(&candidates, artist_name) {
-        artist_by_name(base_url, cache, artist_name).await
+        match artist_by_name(base_url, cache, artist_name).await {
+            Some(id) => Some(id),
+            None => match lead_artist(artist_name) {
+                Some(lead) => artist_by_name(base_url, cache, lead).await,
+                None => None,
+            },
+        }
     } else {
         None
     };
@@ -341,6 +355,14 @@ mod tests {
         assert_eq!(normalize("Don\u{2019}t Stop"), normalize("dont stop"));
         assert_eq!(normalize("\u{200e}waifu"), "waifu");
         assert_eq!(normalize("Lyle & Peake"), "lyle peake");
+    }
+
+    #[test]
+    fn joined_credits_lead_with_the_first_artist() {
+        assert_eq!(lead_artist("vai5000， maji*"), Some("vai5000"));
+        assert_eq!(lead_artist("a; b"), Some("a"));
+        assert_eq!(lead_artist("Tyler, the Creator"), None);
+        assert_eq!(lead_artist("Opal"), None);
     }
 
     #[test]
