@@ -89,7 +89,7 @@ export const worker = deployment("liner-worker", ["worker"], workerMetricsPort, 
 export const monitors = monitoring(workerMetricsPort);
 
 export const service = new k8s.core.v1.Service("liner-api", {
-  metadata: { name: "liner-api" },
+  metadata: { name: "liner-api", labels: labels("liner-api") },
   spec: {
     type: "ClusterIP",
     selector: labels("liner-api"),
