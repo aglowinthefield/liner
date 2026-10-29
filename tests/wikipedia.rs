@@ -6,9 +6,18 @@ use std::sync::{
     Arc,
 };
 
-use axum::{body::Body, extract::Path, extract::State, http::{Request, StatusCode}, routing::get, Json, Router};
+use axum::{
+    body::Body,
+    extract::Path,
+    extract::State,
+    http::{Request, StatusCode},
+    routing::get,
+    Json, Router,
+};
 use http_body_util::BodyExt;
-use liner::{build_router, cache::Cache, ratelimit::RateLimitConfig, sources::wikipedia::Wikipedia, AppState};
+use liner::{
+    build_router, cache::Cache, ratelimit::RateLimitConfig, sources::wikipedia::Wikipedia, AppState,
+};
 use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -75,7 +84,8 @@ async fn fake_wiki() -> (String, Arc<AtomicUsize>) {
 
 async fn app(wiki_url: &str) -> Router {
     let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6380".into());
-    let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://liner:liner@localhost:5433/liner".into());
+    let db_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://liner:liner@localhost:5433/liner".into());
     let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
     sqlx::migrate!().run(&pool).await.unwrap();
     build_router(AppState {
@@ -83,15 +93,31 @@ async fn app(wiki_url: &str) -> Router {
         cache: Cache::connect(&redis_url).await.unwrap(),
         mb_api_url: fake_mb().await,
         wiki: Wikipedia::new(wiki_url, wiki_url),
-        rate: RateLimitConfig { anon_per_min: 100_000, key_per_min: 100_000, trust_proxy: true },
+        lastfm: None,
+        fanart: None,
+        listenbrainz: Default::default(),
+        cover_art: Default::default(),
+        llm: None,
+        rate: RateLimitConfig {
+            anon_per_min: 100_000,
+            key_per_min: 100_000,
+            trust_proxy: true,
+        },
     })
 }
 
 async fn get_json(app: &Router, uri: &str) -> (u16, Value) {
-    let res = app.clone().oneshot(Request::get(uri).body(Body::empty()).unwrap()).await.unwrap();
+    let res = app
+        .clone()
+        .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
     let status = res.status().as_u16();
     let bytes = res.into_body().collect().await.unwrap().to_bytes();
-    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
 }
 
 #[tokio::test]
@@ -106,13 +132,20 @@ async fn artist_gets_bio_and_images_then_serves_from_postgres() {
     assert_eq!(body["bio"]["summary"], "Fake Band is a band.");
     assert_eq!(body["bio"]["source"], "wikipedia");
     assert_eq!(body["bio"]["license"], "CC BY-SA 4.0");
-    assert_eq!(body["bio"]["url"], "https://en.wikipedia.org/wiki/Fake_Band_(band)");
+    assert_eq!(
+        body["bio"]["url"],
+        "https://en.wikipedia.org/wiki/Fake_Band_(band)"
+    );
     assert_eq!(body["images"].as_array().unwrap().len(), 2);
 
     let (_, again) = get_json(&app, &uri).await;
     assert_eq!(again["bio"]["summary"], "Fake Band is a band.");
     assert_eq!(again["images"].as_array().unwrap().len(), 2);
-    assert_eq!(hits.load(Ordering::SeqCst), 1, "second request should not call Wikipedia");
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "second request should not call Wikipedia"
+    );
 }
 
 #[tokio::test]

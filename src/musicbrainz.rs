@@ -21,20 +21,32 @@ pub async fn lookup_entity(base_url: &str, entity_type: &str, mbid: Uuid) -> Opt
     let resp = reqwest::get(&url).await.ok()?;
     let json: serde_json::Value = resp.json().await.ok()?;
 
-    let name = json.get("title")
+    let name = json
+        .get("title")
         .or_else(|| json.get("name"))
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_string();
 
-    let artist_name = json.get("artist-credit")
+    let artist_name = json
+        .get("artist-credit")
         .and_then(|v| v.as_array())
         .map(|credits| {
-            credits.iter().map(|ac| {
-                let artist_name = ac.get("name").or_else(|| ac.pointer("/artist/name")).and_then(|v| v.as_str()).unwrap_or_default();
-                let join = ac.get("joinphrase").and_then(|v| v.as_str()).unwrap_or_default();
-                format!("{artist_name}{join}")
-            }).collect::<String>()
+            credits
+                .iter()
+                .map(|ac| {
+                    let artist_name = ac
+                        .get("name")
+                        .or_else(|| ac.pointer("/artist/name"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default();
+                    let join = ac
+                        .get("joinphrase")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default();
+                    format!("{artist_name}{join}")
+                })
+                .collect::<String>()
         })
         .unwrap_or_default();
 
@@ -43,7 +55,9 @@ pub async fn lookup_entity(base_url: &str, entity_type: &str, mbid: Uuid) -> Opt
 
 /// Look up just the name/title of a MusicBrainz entity by type and MBID.
 pub async fn lookup_entity_name(base_url: &str, entity_type: &str, mbid: Uuid) -> Option<String> {
-    lookup_entity(base_url, entity_type, mbid).await.map(|info| info.name)
+    lookup_entity(base_url, entity_type, mbid)
+        .await
+        .map(|info| info.name)
 }
 
 /// MusicBrainz has no entity with the requested MBID.
@@ -70,7 +84,10 @@ pub fn check(resp: reqwest::Response) -> anyhow::Result<reqwest::Response> {
 pub fn error_response(e: &anyhow::Error, what: &str) -> axum::response::Response {
     use axum::{http::StatusCode, response::IntoResponse, Json};
     if e.downcast_ref::<NotFound>().is_some() {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": format!("{what} not found") })))
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": format!("{what} not found") })),
+        )
             .into_response();
     }
     tracing::error!("Failed to fetch {what}: {e}");

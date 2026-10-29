@@ -25,7 +25,8 @@ cargo test
 | `TRUST_PROXY` | `true` |
 | `RATE_LIMIT_ANON_PER_MIN` | `60` |
 | `RATE_LIMIT_KEY_PER_MIN` | `1200` |
-| `LASTFM_API_KEY`, `FANART_API_KEY` | unset |
+| `LASTFM_API_KEY`, `FANART_API_KEY` | unset. Last.fm adds bios, tags and similar artists; fanart.tv adds artist images |
+| `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_DAILY_ARTIST_CAP` | unset. Without a key, `/v1/artist/{mbid}/similar` returns unranked candidates |
 | `LLM_BASE_URL` | `https://api.openai.com/v1` |
 | `LLM_API_KEY` | unset |
 | `LLM_MODEL` | `gpt-6.1-sol` |

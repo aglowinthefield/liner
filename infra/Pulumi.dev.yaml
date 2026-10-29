@@ -7,3 +7,7 @@ config:
     secure: AAABAN19JoJoFPOyhmkBxjjzfJ3uTSZdYNzm2afoFHhVRun7Hr549QQYBlPBCW2Q1g+mRPAPTgUPOB8dl2LTp64YhP3AIVFR4VkfcXB4kgfjoxYMxg==
   liner:cloudflareZoneId: 164eed685d6277a123ebfdac8b803ec3
   liner:ingressIp: 161.35.254.144
+  liner:lastfmApiKey:
+    secure: AAABAIE3KONTpkRvhPtniqn7pF+tmtZkyxS8KkTwdRzIqkSpLUOLUJmSfmHPZ2hWDpT6MaJpDLpZ2r44zud/ig==
+  liner:llmApiKey:
+    secure: AAABACkEbyCBURWbljPPabmpZoQi06U1jDwi/zve4x3vV8OOiceJiZGsmNfgJ56IwejnMRerS4GVJo3S0JdjPT8hJjoQ08NGupjVq92EDUp4g9x9XCaWSLuN8Tl8czmzsuhUcVKFBp/kgEEA160Kg/HHImNh8xyRlmEgb3sjuth5C9t5ZgWoBuNrJT+b1WZ6/yTzSp785UIpVe4ex2x1v453FMum/ETlkmUdom086iW1ws0+9eLo9EJH8s+1zCqHyv5IzA==

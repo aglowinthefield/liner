@@ -5,16 +5,24 @@ pub mod config;
 pub mod db;
 pub mod enrich;
 pub mod entities;
+pub mod graph;
 pub mod health;
+pub mod jobs;
 pub mod label;
+pub mod llm;
 pub mod metrics;
 pub mod musicbrainz;
 pub mod ratelimit;
 pub mod release_group;
 pub mod search;
+pub mod similar;
 pub mod sources;
+pub mod worker;
 
-use axum::{routing::{get, post}, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use sqlx::PgPool;
 use utoipa::OpenApi;
 
@@ -27,6 +35,11 @@ pub struct AppState {
     pub mb_api_url: String,
     pub rate: ratelimit::RateLimitConfig,
     pub wiki: sources::wikipedia::Wikipedia,
+    pub lastfm: Option<sources::lastfm::Lastfm>,
+    pub fanart: Option<sources::fanart::Fanart>,
+    pub listenbrainz: sources::listenbrainz::ListenBrainz,
+    pub cover_art: sources::coverart::CoverArt,
+    pub llm: Option<llm::Llm>,
 }
 
 #[derive(OpenApi)]
@@ -34,6 +47,8 @@ pub struct AppState {
     paths(
         health::healthz,
         artist::handlers::get_artist,
+        similar::handlers::get_similar,
+        graph::get_graph,
         label::handlers::get_label,
         release_group::handlers::get_release_group,
         search::handlers::search,
@@ -52,6 +67,14 @@ pub struct AppState {
         label::model::LabelRelease,
         label::model::LabelReleaseArtist,
         release_group::model::ReleaseGroupDetail,
+        release_group::model::ReleaseGroupResponse,
+        sources::coverart::Cover,
+        similar::model::SimilarResponse,
+        similar::model::SimilarArtist,
+        similar::model::SimilarStatus,
+        graph::Graph,
+        graph::GraphNode,
+        graph::GraphEdge,
         release_group::model::ArtistCredit,
         release_group::model::ExternalLink,
         release_group::model::LabelInfo,
@@ -72,7 +95,11 @@ pub struct AppState {
         entities::NamesResponse,
         entities::EntityName,
     )),
-    info(title = "liner", version = "0.1.0", description = "Music metadata server"),
+    info(
+        title = "liner",
+        version = "0.1.0",
+        description = "Music metadata server"
+    )
 )]
 pub struct ApiDoc;
 
@@ -80,14 +107,25 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(health::healthz))
         .route("/v1/artist/{mbid}", get(artist::handlers::get_artist))
+        .route(
+            "/v1/artist/{mbid}/similar",
+            get(similar::handlers::get_similar),
+        )
+        .route("/v1/graph/{mbid}", get(graph::get_graph))
         .route("/v1/label/{mbid}", get(label::handlers::get_label))
-        .route("/v1/release-group/{mbid}", get(release_group::handlers::get_release_group))
+        .route(
+            "/v1/release-group/{mbid}",
+            get(release_group::handlers::get_release_group),
+        )
         .route("/v1/search", get(search::handlers::search))
         .route("/v1/match", get(album_match::handlers::match_album))
         .route("/v1/match/batch", post(album_match::handlers::match_batch))
         .route("/v1/entities/names", post(entities::names))
         .route("/metrics", get(metrics::metrics_handler))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), ratelimit::middleware))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            ratelimit::middleware,
+        ))
         .layer(metrics::layer())
         .with_state(state)
 }

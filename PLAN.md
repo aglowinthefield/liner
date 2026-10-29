@@ -104,7 +104,7 @@ The halfnotes `dev` stack is running on cluster `halfnotes-dev-46c7aca` (see `do
 - **Secrets:** Pulumi config secrets (`lastfmApiKey`, `fanartApiKey`, `openaiApiKey`, `adminToken`) become a K8s Secret.
 - **Image:** `registry.digitalocean.com/halfnotes/liner:<sha>`, pushed by liner's CI.
 
-The Pulumi project lives in `liner/infra`, not in `halfnotes/infra`. halfnotes deploys by running `pulumi up` in its own repo, filtered by path, so a liner image built in another repo can't trigger that cleanly. `liner/infra` uses a `StackReference` to the halfnotes `dev` stack for the kubeconfig, and liner's CI builds and deploys on its own.
+The Pulumi project lives in `liner/infra`, not in `halfnotes/infra`. halfnotes deploys by running `pulumi up` in its own repo, filtered by path, so a liner image built in another repo can't trigger that cleanly. `liner/infra` uses the ambient kubeconfig (CI writes one with `doctl`), and liner's CI builds and deploys on its own. The `liner` Postgres role and database in `halfnotes-db` were created by hand with `kubectl exec`; they are not in Pulumi.
 
 ## Build order
 

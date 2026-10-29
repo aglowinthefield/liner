@@ -13,7 +13,7 @@ use crate::AppState;
     get, path = "/v1/release-group/{mbid}",
     params(("mbid" = Uuid, Path, description = "MusicBrainz release group ID")),
     responses(
-        (status = 200, description = "Release group details", body = super::model::ReleaseGroupDetail),
+        (status = 200, description = "Release group details", body = super::model::ReleaseGroupResponse),
         (status = 404, description = "No such release group in MusicBrainz"),
         (status = 500, description = "Failed to fetch release group"),
     ),
@@ -24,7 +24,17 @@ pub async fn get_release_group(
     Path(mbid): Path<Uuid>,
 ) -> impl IntoResponse {
     match model::get_release_group(&state.mb_api_url, mbid, &state.cache).await {
-        Ok(detail) => (StatusCode::OK, Json(serde_json::json!(detail))).into_response(),
+        Ok(release_group) => {
+            let cover = state.cover_art.front(&state.cache, mbid).await;
+            (
+                StatusCode::OK,
+                Json(model::ReleaseGroupResponse {
+                    release_group,
+                    cover,
+                }),
+            )
+                .into_response()
+        }
         Err(e) => crate::musicbrainz::error_response(&e, "release group"),
     }
 }

@@ -26,6 +26,15 @@ pub struct ReleaseGroupDetail {
     pub barcode: Option<String>,
 }
 
+/// Release group data from MusicBrainz plus cover art.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReleaseGroupResponse {
+    #[serde(flatten)]
+    pub release_group: ReleaseGroupDetail,
+    /// `null` when the Cover Art Archive has no front cover.
+    pub cover: Option<crate::sources::coverart::Cover>,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ArtistCredit {
     pub mbid: Uuid,
@@ -165,10 +174,16 @@ struct WsTrack {
     artist_credit: Vec<WsArtistCredit>,
 }
 
-pub async fn get_release_group(base_url: &str, mbid: Uuid, cache: &Cache) -> Result<ReleaseGroupDetail> {
+pub async fn get_release_group(
+    base_url: &str,
+    mbid: Uuid,
+    cache: &Cache,
+) -> Result<ReleaseGroupDetail> {
     let base_url = base_url.to_string();
     cache
-        .get_or_fetch(&format!("liner:rg:{mbid}"), || fetch_release_group(&base_url, mbid))
+        .get_or_fetch(&format!("liner:rg:{mbid}"), || {
+            fetch_release_group(&base_url, mbid)
+        })
         .await
 }
 
@@ -178,10 +193,7 @@ async fn fetch_release_group(base_url: &str, mbid: Uuid) -> Result<ReleaseGroupD
     // Step 1: Fetch release group with artist credits, releases list, and URL rels
     let rg = client
         .get(format!("{base_url}/ws/2/release-group/{mbid}"))
-        .query(&[
-            ("inc", "artist-credits+releases+url-rels"),
-            ("fmt", "json"),
-        ])
+        .query(&[("inc", "artist-credits+releases+url-rels"), ("fmt", "json")])
         .send()
         .await?;
     let rg: WsReleaseGroup = crate::musicbrainz::check(rg)?.json().await?;

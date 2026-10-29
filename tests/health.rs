@@ -10,7 +10,16 @@ async fn healthz_returns_ok() {
         cache: Cache::connect(&redis_url).await.unwrap(),
         mb_api_url: String::new(),
         wiki: Default::default(),
-        rate: liner::ratelimit::RateLimitConfig { anon_per_min: 1000, key_per_min: 1000, trust_proxy: true },
+        lastfm: None,
+        fanart: None,
+        listenbrainz: Default::default(),
+        cover_art: Default::default(),
+        llm: None,
+        rate: liner::ratelimit::RateLimitConfig {
+            anon_per_min: 1000,
+            key_per_min: 1000,
+            trust_proxy: true,
+        },
     };
     let res = build_router(state)
         .oneshot(Request::get("/healthz").body(Body::empty()).unwrap())

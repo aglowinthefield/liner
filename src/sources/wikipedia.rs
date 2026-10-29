@@ -1,12 +1,8 @@
 //! Artist bios and images from Wikipedia, found through the artist's Wikidata link in MusicBrainz.
 
-use std::time::Duration;
-
 use anyhow::Result;
 use reqwest::Url;
 use serde::Deserialize;
-
-const USER_AGENT: &str = "liner/0.1 (https://github.com/aglowinthefield/liner)";
 
 #[derive(Clone)]
 pub struct Wikipedia {
@@ -85,13 +81,8 @@ pub fn qid_from_url(url: &str) -> Option<&str> {
 
 impl Wikipedia {
     pub fn new(wikidata_url: &str, wikipedia_url: &str) -> Self {
-        let client = reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .timeout(Duration::from_secs(3))
-            .build()
-            .expect("reqwest client");
         Self {
-            client,
+            client: super::http_client(3),
             wikidata_url: wikidata_url.trim_end_matches('/').to_string(),
             wikipedia_url: wikipedia_url.trim_end_matches('/').to_string(),
         }
@@ -162,9 +153,18 @@ mod tests {
 
     #[test]
     fn parses_wikidata_urls() {
-        assert_eq!(qid_from_url("https://www.wikidata.org/wiki/Q11649"), Some("Q11649"));
-        assert_eq!(qid_from_url("https://www.wikidata.org/wiki/Q11649/"), Some("Q11649"));
-        assert_eq!(qid_from_url("https://www.wikidata.org/wiki/Special:Foo"), None);
+        assert_eq!(
+            qid_from_url("https://www.wikidata.org/wiki/Q11649"),
+            Some("Q11649")
+        );
+        assert_eq!(
+            qid_from_url("https://www.wikidata.org/wiki/Q11649/"),
+            Some("Q11649")
+        );
+        assert_eq!(
+            qid_from_url("https://www.wikidata.org/wiki/Special:Foo"),
+            None
+        );
         assert_eq!(qid_from_url("https://www.wikidata.org/wiki/Q"), None);
     }
 }

@@ -27,6 +27,8 @@ pub struct ArtistResponse {
     /// `null` when no source has a bio for this artist.
     pub bio: Option<crate::enrich::Bio>,
     pub images: Vec<crate::enrich::Image>,
+    /// Genre and style tags from Last.fm, most popular first.
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -96,7 +98,9 @@ struct WsReleaseGroupEntry {
 pub async fn get_artist(base_url: &str, mbid: Uuid, cache: &Cache) -> Result<ArtistDetail> {
     let base_url = base_url.to_string();
     cache
-        .get_or_fetch(&format!("liner:artist:{mbid}"), || fetch_artist(&base_url, mbid))
+        .get_or_fetch(&format!("liner:artist:{mbid}"), || {
+            fetch_artist(&base_url, mbid)
+        })
         .await
 }
 

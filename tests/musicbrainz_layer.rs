@@ -63,7 +63,16 @@ async fn router() -> Router {
         cache,
         mb_api_url: fake_mb().await,
         wiki: Default::default(),
-        rate: liner::ratelimit::RateLimitConfig { anon_per_min: 1000, key_per_min: 1000, trust_proxy: true },
+        lastfm: None,
+        fanart: None,
+        listenbrainz: Default::default(),
+        cover_art: Default::default(),
+        llm: None,
+        rate: liner::ratelimit::RateLimitConfig {
+            anon_per_min: 1000,
+            key_per_min: 1000,
+            trust_proxy: true,
+        },
     })
 }
 
@@ -71,12 +80,21 @@ async fn call(app: Router, req: Request<Body>) -> (u16, Value) {
     let res = app.oneshot(req).await.unwrap();
     let status = res.status().as_u16();
     let bytes = res.into_body().collect().await.unwrap().to_bytes();
-    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
 }
 
 #[tokio::test]
 async fn artist_sorts_release_groups_newest_first() {
-    let (status, body) = call(router().await, Request::get(format!("/v1/artist/{ARTIST}")).body(Body::empty()).unwrap()).await;
+    let (status, body) = call(
+        router().await,
+        Request::get(format!("/v1/artist/{ARTIST}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
     assert_eq!(status, 200);
     assert_eq!(body["name"], "Fake Band");
     assert_eq!(body["begin_date"], "1990");
@@ -87,7 +105,11 @@ async fn artist_sorts_release_groups_newest_first() {
 #[tokio::test]
 async fn match_is_confident_on_exact_title() {
     let uri = "/v1/match?artist=Fake%20Band&album=Fake%20Album";
-    let (status, body) = call(router().await, Request::get(uri).body(Body::empty()).unwrap()).await;
+    let (status, body) = call(
+        router().await,
+        Request::get(uri).body(Body::empty()).unwrap(),
+    )
+    .await;
     assert_eq!(status, 200);
     assert_eq!(body["status"], "confident");
     assert_eq!(body["candidates"][0]["mbid"], RG);
@@ -98,7 +120,13 @@ async fn match_is_confident_on_exact_title() {
 
 #[tokio::test]
 async fn match_rejects_empty_album() {
-    let (status, _) = call(router().await, Request::get("/v1/match?artist=x&album=").body(Body::empty()).unwrap()).await;
+    let (status, _) = call(
+        router().await,
+        Request::get("/v1/match?artist=x&album=")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
     assert_eq!(status, 400);
 }
 
@@ -106,7 +134,9 @@ async fn match_rejects_empty_album() {
 async fn entity_names_resolves_release_group() {
     let req = Request::post("/v1/entities/names")
         .header("content-type", "application/json")
-        .body(Body::from(json!({"entities": [{"entity_type": "release-group", "mbid": RG}]}).to_string()))
+        .body(Body::from(
+            json!({"entities": [{"entity_type": "release-group", "mbid": RG}]}).to_string(),
+        ))
         .unwrap();
     let (status, body) = call(router().await, req).await;
     assert_eq!(status, 200);
