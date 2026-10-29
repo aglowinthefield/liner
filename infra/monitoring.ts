@@ -6,6 +6,8 @@ import * as k8s from "@pulumi/kubernetes";
 import { linerDashboard } from "./dashboard";
 
 const release = { release: "kube-prometheus-stack" };
+// This Prometheus only loads rules labelled with its Helm release name.
+const ruleRelease = { release: "kube-prometheus-stack-ce6e0f4e" };
 
 export function monitoring(workerMetricsPort: number) {
   const apiMonitor = new k8s.apiextensions.CustomResource("liner-api-monitor", {
@@ -40,7 +42,7 @@ export function monitoring(workerMetricsPort: number) {
   const alerts = new k8s.apiextensions.CustomResource("liner-alerts", {
     apiVersion: "monitoring.coreos.com/v1",
     kind: "PrometheusRule",
-    metadata: { name: "liner-alerts", namespace: "monitoring", labels: release },
+    metadata: { name: "liner-alerts", namespace: "monitoring", labels: ruleRelease },
     spec: {
       groups: [{
         name: "liner",
