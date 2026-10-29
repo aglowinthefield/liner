@@ -73,6 +73,18 @@ impl Cache {
         Ok(count)
     }
 
+    /// Sets a flag key that expires after `ttl`. Errors are ignored.
+    pub async fn mark(&self, key: &str, ttl: Duration) {
+        let mut conn = self.conn.clone();
+        let _: Result<(), _> = conn.set_ex(key, 1, ttl.as_secs()).await;
+    }
+
+    /// True if `key` was set with [`Cache::mark`] and has not expired. Errors count as false.
+    pub async fn is_marked(&self, key: &str) -> bool {
+        let mut conn = self.conn.clone();
+        conn.exists(key).await.unwrap_or(false)
+    }
+
     async fn get<T: DeserializeOwned>(&self, key: &str) -> anyhow::Result<Option<T>> {
         let mut conn = self.conn.clone();
         let raw: Option<String> = conn.get(key).await?;

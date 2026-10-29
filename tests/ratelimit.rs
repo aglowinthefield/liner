@@ -13,6 +13,7 @@ async fn app(anon: u32) -> Router {
         pool,
         cache: Cache::connect(&redis_url).await.unwrap(),
         mb_api_url: String::new(),
+        wiki: Default::default(),
         rate: RateLimitConfig { anon_per_min: anon, key_per_min: 1000, trust_proxy: true },
     })
 }

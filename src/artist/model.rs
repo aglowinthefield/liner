@@ -19,6 +19,16 @@ pub struct ArtistDetail {
     pub release_groups: Vec<ReleaseGroupSummary>,
 }
 
+/// Artist data from MusicBrainz plus bio and images from other sources.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ArtistResponse {
+    #[serde(flatten)]
+    pub artist: ArtistDetail,
+    /// `null` when no source has a bio for this artist.
+    pub bio: Option<crate::enrich::Bio>,
+    pub images: Vec<crate::enrich::Image>,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExternalLink {
     pub link_type: String,
@@ -109,8 +119,8 @@ async fn fetch_artist(base_url: &str, mbid: Uuid) -> Result<ArtistDetail> {
             .send(),
     );
 
-    let artist: WsArtistLookup = artist_resp?.json().await?;
-    let rg_browse: WsReleaseGroupBrowse = rg_resp?.json().await?;
+    let artist: WsArtistLookup = crate::musicbrainz::check(artist_resp?)?.json().await?;
+    let rg_browse: WsReleaseGroupBrowse = crate::musicbrainz::check(rg_resp?)?.json().await?;
 
     let (begin_date, end_date) = match artist.life_span {
         Some(ls) => (ls.begin, ls.end),

@@ -138,8 +138,8 @@ async fn fetch_label(base_url: &str, mbid: Uuid) -> Result<LabelDetail> {
             .send(),
     );
 
-    let label: WsLabelLookup = label_resp?.json().await?;
-    let browse: WsReleaseBrowse = releases_resp?.json().await?;
+    let label: WsLabelLookup = crate::musicbrainz::check(label_resp?)?.json().await?;
+    let browse: WsReleaseBrowse = crate::musicbrainz::check(releases_resp?)?.json().await?;
 
     let (begin_date, end_date) = match label.life_span {
         Some(ls) => (ls.begin, ls.end),

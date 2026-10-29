@@ -62,6 +62,7 @@ async fn router() -> Router {
         pool: sqlx::PgPool::connect_lazy("postgres://liner:liner@localhost:5433/liner").unwrap(),
         cache,
         mb_api_url: fake_mb().await,
+        wiki: Default::default(),
         rate: liner::ratelimit::RateLimitConfig { anon_per_min: 1000, key_per_min: 1000, trust_proxy: true },
     })
 }

@@ -14,6 +14,7 @@ use crate::AppState;
     params(("mbid" = Uuid, Path, description = "MusicBrainz label ID")),
     responses(
         (status = 200, description = "Label details", body = super::model::LabelDetail),
+        (status = 404, description = "No such label in MusicBrainz"),
         (status = 500, description = "Failed to fetch label"),
     ),
     tag = "label"
@@ -24,13 +25,6 @@ pub async fn get_label(
 ) -> impl IntoResponse {
     match model::get_label(&state.mb_api_url, mbid, &state.cache).await {
         Ok(label) => (StatusCode::OK, Json(serde_json::json!(label))).into_response(),
-        Err(e) => {
-            tracing::error!("Failed to fetch label {}: {}", mbid, e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "Failed to fetch label" })),
-            )
-                .into_response()
-        }
+        Err(e) => crate::musicbrainz::error_response(&e, "label"),
     }
 }

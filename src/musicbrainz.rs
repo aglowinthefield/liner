@@ -45,3 +45,38 @@ pub async fn lookup_entity(base_url: &str, entity_type: &str, mbid: Uuid) -> Opt
 pub async fn lookup_entity_name(base_url: &str, entity_type: &str, mbid: Uuid) -> Option<String> {
     lookup_entity(base_url, entity_type, mbid).await.map(|info| info.name)
 }
+
+/// MusicBrainz has no entity with the requested MBID.
+#[derive(Debug)]
+pub struct NotFound;
+
+impl std::fmt::Display for NotFound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "not found in MusicBrainz")
+    }
+}
+
+impl std::error::Error for NotFound {}
+
+/// Maps a 404 to [`NotFound`] and any other error status to a plain error.
+pub fn check(resp: reqwest::Response) -> anyhow::Result<reqwest::Response> {
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(NotFound.into());
+    }
+    Ok(resp.error_for_status()?)
+}
+
+/// Builds the response for a failed entity fetch: 404 for [`NotFound`], 500 otherwise.
+pub fn error_response(e: &anyhow::Error, what: &str) -> axum::response::Response {
+    use axum::{http::StatusCode, response::IntoResponse, Json};
+    if e.downcast_ref::<NotFound>().is_some() {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": format!("{what} not found") })))
+            .into_response();
+    }
+    tracing::error!("Failed to fetch {what}: {e}");
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({ "error": format!("Failed to fetch {what}") })),
+    )
+        .into_response()
+}

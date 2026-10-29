@@ -176,16 +176,15 @@ async fn fetch_release_group(base_url: &str, mbid: Uuid) -> Result<ReleaseGroupD
     let client = reqwest::Client::new();
 
     // Step 1: Fetch release group with artist credits, releases list, and URL rels
-    let rg: WsReleaseGroup = client
+    let rg = client
         .get(format!("{base_url}/ws/2/release-group/{mbid}"))
         .query(&[
             ("inc", "artist-credits+releases+url-rels"),
             ("fmt", "json"),
         ])
         .send()
-        .await?
-        .json()
         .await?;
+    let rg: WsReleaseGroup = crate::musicbrainz::check(rg)?.json().await?;
 
     let artists: Vec<ArtistCredit> = rg
         .artist_credit

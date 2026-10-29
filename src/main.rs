@@ -29,6 +29,7 @@ async fn serve(config: Config, pool: sqlx::PgPool) -> anyhow::Result<()> {
         pool,
         cache,
         mb_api_url: config.musicbrainz_api_url,
+        wiki: Default::default(),
         rate: RateLimitConfig {
             anon_per_min: config.rate_limit_anon_per_min,
             key_per_min: config.rate_limit_key_per_min,

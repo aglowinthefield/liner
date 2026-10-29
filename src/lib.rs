@@ -3,6 +3,7 @@ pub mod artist;
 pub mod cache;
 pub mod config;
 pub mod db;
+pub mod enrich;
 pub mod entities;
 pub mod health;
 pub mod label;
@@ -11,6 +12,7 @@ pub mod musicbrainz;
 pub mod ratelimit;
 pub mod release_group;
 pub mod search;
+pub mod sources;
 
 use axum::{routing::{get, post}, Router};
 use sqlx::PgPool;
@@ -24,6 +26,7 @@ pub struct AppState {
     pub cache: Cache,
     pub mb_api_url: String,
     pub rate: ratelimit::RateLimitConfig,
+    pub wiki: sources::wikipedia::Wikipedia,
 }
 
 #[derive(OpenApi)]
@@ -41,6 +44,9 @@ pub struct AppState {
     components(schemas(
         health::Health,
         artist::model::ArtistDetail,
+        artist::model::ArtistResponse,
+        enrich::Bio,
+        enrich::Image,
         artist::model::ReleaseGroupSummary,
         label::model::LabelDetail,
         label::model::LabelRelease,
