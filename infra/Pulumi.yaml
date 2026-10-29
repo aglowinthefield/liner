@@ -1,0 +1,6 @@
+name: liner
+description: liner deployment on the halfnotes DigitalOcean cluster
+runtime:
+  name: nodejs
+  options:
+    packagemanager: npm

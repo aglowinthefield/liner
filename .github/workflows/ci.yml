@@ -44,3 +44,32 @@ jobs:
             --push \
             -t $REGISTRY/liner:${{ github.sha }} \
             -t $REGISTRY/liner:latest .
+
+  deploy:
+    needs: image
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency: deploy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      - name: Configure kubectl
+        run: |
+          CLUSTER=$(doctl kubernetes cluster list --format Name --no-header | grep halfnotes-dev | head -1)
+          doctl kubernetes cluster kubeconfig save "$CLUSTER"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: pulumi/actions@v5
+      - name: Install infra dependencies
+        working-directory: infra
+        run: npm ci
+      - name: Deploy
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi config set image registry.digitalocean.com/halfnotes/liner:${{ github.sha }} -s dev
+          pulumi up --yes -s dev

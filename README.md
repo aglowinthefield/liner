@@ -2,7 +2,7 @@
 
 An open-source music metadata server. liner reads artist, release group, and label data from a MusicBrainz mirror, adds bios and images from other sources, and builds a similar-artists graph with an LLM. See [PLAN.md](PLAN.md) for the design and build order.
 
-Status: scaffold. `/healthz`, `/metrics`, and `/scalar` work. The metadata endpoints are not built yet.
+Status: the MusicBrainz endpoints and rate limiting work. Enrichment and the similar-artists graph are not built yet.
 
 ## Run locally
 
@@ -30,6 +30,18 @@ cargo test
 | `LLM_API_KEY` | unset |
 | `LLM_MODEL` | `gpt-6.1-sol` |
 | `LLM_DAILY_ARTIST_CAP` | `200` |
+
+## Rate limits and API keys
+
+Anonymous clients get `RATE_LIMIT_ANON_PER_MIN` requests per minute per IP. Clients that send a valid `X-Liner-Key` header get `RATE_LIMIT_KEY_PER_MIN`, or the key's own limit. Over the limit, liner returns `429` with `Retry-After`.
+
+```bash
+cargo run -- key create mu 2000   # prints the key once
+```
+
+## Deploy
+
+CI builds the image and runs `pulumi up` in `infra/` on every push to `main`. The stack deploys onto the halfnotes `dev` cluster. It expects a `liner` role and database in the in-cluster Postgres, and the ingress, cert-manager, and `letsencrypt` issuer from the halfnotes stack.
 
 ## License
 

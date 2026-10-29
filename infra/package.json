@@ -1,0 +1,14 @@
+{
+  "name": "liner-infra",
+  "private": true,
+  "main": "index.ts",
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@pulumi/cloudflare": "^5",
+    "@pulumi/kubernetes": "^4",
+    "@pulumi/pulumi": "^3"
+  }
+}
