@@ -1,4 +1,4 @@
-FROM rust:1.88-alpine AS build
+FROM rust:1-alpine AS build
 RUN apk add --no-cache musl-dev pkgconf openssl-dev openssl-libs-static
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
