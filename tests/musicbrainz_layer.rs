@@ -92,6 +92,8 @@ async fn match_is_confident_on_exact_title() {
     assert_eq!(body["status"], "confident");
     assert_eq!(body["candidates"][0]["mbid"], RG);
     assert_eq!(body["candidates"][0]["artist_mbid"], ARTIST);
+    assert_eq!(body["artist_mbid"], ARTIST);
+    assert_eq!(body["release_group_mbid"], RG);
 }
 
 #[tokio::test]

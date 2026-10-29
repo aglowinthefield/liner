@@ -26,6 +26,10 @@ pub struct AlbumMatch {
     pub artist_name: String,
     pub album_name: String,
     pub status: MatchStatus,
+    /// Release group MBID of the best candidate. Only set when `status` is `confident`.
+    pub release_group_mbid: Option<String>,
+    /// Artist MBID of the best candidate. Only set when `status` is `confident`.
+    pub artist_mbid: Option<Uuid>,
     pub candidates: Vec<MatchCandidate>,
 }
 
@@ -116,9 +120,12 @@ pub async fn match_album(
         MatchStatus::NotFound
     };
 
+    let best = candidates.first().filter(|_| status == MatchStatus::Confident);
     AlbumMatch {
         artist_name: artist_name.to_string(),
         album_name: album_name.to_string(),
+        release_group_mbid: best.map(|c| c.mbid.clone()),
+        artist_mbid: best.and_then(|c| c.artist_mbid),
         status,
         candidates,
     }
