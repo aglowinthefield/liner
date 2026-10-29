@@ -39,7 +39,7 @@ async fn fake_mb() -> String {
                     Json(json!({"release-groups": [{
                         "id": RG, "title": "Fake Album", "score": 100, "primary-type": "Album",
                         "first-release-date": "1999-01-01",
-                        "artist-credit": [{"name": "Fake Band", "joinphrase": ""}]
+                        "artist-credit": [{"name": "Fake Band", "joinphrase": "", "artist": {"id": ARTIST}}]
                     }]}))
                 } else {
                     Json(json!({"release-groups": [
@@ -91,6 +91,7 @@ async fn match_is_confident_on_exact_title() {
     assert_eq!(status, 200);
     assert_eq!(body["status"], "confident");
     assert_eq!(body["candidates"][0]["mbid"], RG);
+    assert_eq!(body["candidates"][0]["artist_mbid"], ARTIST);
 }
 
 #[tokio::test]

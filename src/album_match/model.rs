@@ -42,6 +42,9 @@ pub struct MatchCandidate {
     pub mbid: String,
     pub title: String,
     pub artist_name: String,
+    /// MBID of the first credited artist. Use it with `/v1/artist/{mbid}`.
+    #[serde(default)]
+    pub artist_mbid: Option<Uuid>,
     pub release_group_type: Option<String>,
     pub first_release_date: Option<String>,
     pub score: u8,
@@ -73,6 +76,12 @@ struct MbArtistCredit {
     name: String,
     #[serde(default)]
     joinphrase: Option<String>,
+    artist: Option<MbCreditedArtist>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MbCreditedArtist {
+    id: Uuid,
 }
 
 /// Search MusicBrainz for a single (artist, album) pair and return ranked candidates.
@@ -83,7 +92,7 @@ pub async fn match_album(
     album_name: &str,
 ) -> AlbumMatch {
     let cache_key = format!(
-        "liner:match:{}:{}",
+        "liner:match:v2:{}:{}",
         artist_name.to_lowercase().trim(),
         album_name.to_lowercase().trim()
     );
@@ -140,6 +149,7 @@ async fn fetch_candidates(
         .into_iter()
         .take(3)
         .map(|rg| {
+            let artist_mbid = rg.artist_credit.first().and_then(|ac| ac.artist.as_ref()).map(|a| a.id);
             let artist = rg
                 .artist_credit
                 .into_iter()
@@ -153,6 +163,7 @@ async fn fetch_candidates(
                 mbid: rg.id.to_string(),
                 title: rg.title,
                 artist_name: artist,
+                artist_mbid,
                 release_group_type: rg.primary_type,
                 first_release_date: rg.first_release_date.filter(|d| !d.is_empty()),
                 score: rg.score,
