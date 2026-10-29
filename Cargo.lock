@@ -1138,6 +1138,7 @@ dependencies = [
  "axum",
  "axum-prometheus",
  "chrono",
+ "futures",
  "http-body-util",
  "metrics",
  "metrics-exporter-prometheus",
